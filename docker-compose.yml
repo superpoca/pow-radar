@@ -14,7 +14,7 @@ services:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: ******db:5432/powradar
+      DATABASE_URL: postgresql+psycopg://powradar:powradar@db:5432/powradar
     depends_on:
       - db
     command: ["pow-radar", "run-all"]

@@ -29,7 +29,7 @@ class GitHub:
             headers={
                 "Accept": "application/vnd.github+json",
                 "User-Agent": "pow-radar/0.1",
-                **({"Authorization": f"******"} if settings.github_token else {}),
+                **({"Authorization": f"Bearer {settings.github_token}"} if settings.github_token else {}),
             },
         )
 

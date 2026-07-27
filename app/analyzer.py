@@ -55,11 +55,11 @@ def analyze_text(files: dict[str, str], keywords: dict) -> dict:
             sources["launch"].append(path)
         if _contains_any(blob, risk_terms):
             sources["risk"].append(path)
-        if re.search(r"\b(miner|stratum|pool)\b", blob):
+        if re.search(r"miner|stratum|pool", blob):
             sources["miner"].append(path)
-        if re.search(r"\b(node|daemon|p2p|seed node|bootstrap)\b", blob):
+        if re.search(r"node|daemon|p2p|seed node|bootstrap", blob):
             sources["node"].append(path)
-        if re.search(r"\b(wallet|address|keystore|mnemonic)\b", blob):
+        if re.search(r"wallet|address|keystore|mnemonic", blob):
             sources["wallet"].append(path)
         if re.search(r"\b(difficulty|block\s*reward|genesis|epoch|target|nonce)\b", blob):
             sources["parameter"].append(path)
