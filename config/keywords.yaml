@@ -1,15 +1,52 @@
 search_queries:
-  - "proof of work"
-  - "GPU mining"
-  - "CUDA miner"
-  - "OpenCL miner"
-  - "GPU PoW"
-  - "cryptocurrency node miner"
-  - "ProgPoW"
-  - "KawPow"
-  - "RandomX"
+  - "proof of work gpu miner"
+  - "CUDA miner blockchain"
+  - "OpenCL miner node wallet"
+  - "mainnet genesis testnet miner"
+  - "RandomX KawPow ProgPoW"
+  - "GPU PoW wallet node"
 
-pow_terms: [pow, proof-of-work, proof of work, mining, miner, difficulty, block reward, nonce, genesis]
-gpu_terms: [cuda, opencl, gpu, kernel, nvidia, amd, rocm, wgpu]
-launch_terms: [mainnet, testnet, genesis, seed node, bootstrap, release candidate, mining starts, block height]
-risk_terms: [pre-mine, premine, developer fee, closed source, remote script, private key, presale]
+pow_terms:
+  - pow
+  - proof-of-work
+  - proof of work
+  - mining
+  - difficulty
+  - block reward
+  - nonce
+  - genesis
+  - epoch
+  - target
+
+gpu_terms:
+  - cuda
+  - opencl
+  - gpu
+  - nvidia
+  - amd
+  - rocm
+  - kernel
+  - wgpu
+
+launch_terms:
+  - mainnet
+  - testnet
+  - genesis
+  - seed node
+  - bootstrap
+  - release candidate
+  - rc
+  - mining starts
+  - block height
+  - launch window
+
+risk_terms:
+  - pre-mine
+  - premine
+  - developer fee
+  - closed source
+  - remote script
+  - private key
+  - presale
+  - curl | bash
+  - invoke-expression

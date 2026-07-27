@@ -1,8 +1,49 @@
+profile: balanced
+
 thresholds:
   qualified: 75
   high_priority: 85
   minimum_team: 18
   minimum_gpu: 16
+
 hard_reject:
   inactive_days: 90
   core_similarity: 0.90
+  require_pow: true
+  reject_malicious_script: true
+
+status_windows:
+  archive_days: 180
+
+monitoring:
+  discovered: 12h
+  watchlist: 6h
+  qualified: 2h
+  pre_mine: 15m
+  mining_ready: realtime
+
+signals:
+  p0_requires:
+    - node
+    - pow_parameters
+    - miner
+    - wallet
+  p1_terms:
+    - mainnet
+    - release candidate
+    - genesis
+    - launch window
+  p2_terms:
+    - testnet
+    - gpu
+    - miner
+    - wallet
+
+low_visibility_max_stars: 200
+
+manual_review_checklist:
+  - verify source and release correspondence
+  - verify node, wallet, miner, and PoW parameters
+  - verify premine and developer allocation transparency
+  - verify independent third-party build or mining evidence
+  - never execute unknown scripts or binaries
