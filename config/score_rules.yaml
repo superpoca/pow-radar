@@ -1,0 +1,8 @@
+thresholds:
+  qualified: 75
+  high_priority: 85
+  minimum_team: 18
+  minimum_gpu: 16
+hard_reject:
+  inactive_days: 90
+  core_similarity: 0.90

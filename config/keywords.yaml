@@ -1,0 +1,15 @@
+search_queries:
+  - "proof of work"
+  - "GPU mining"
+  - "CUDA miner"
+  - "OpenCL miner"
+  - "GPU PoW"
+  - "cryptocurrency node miner"
+  - "ProgPoW"
+  - "KawPow"
+  - "RandomX"
+
+pow_terms: [pow, proof-of-work, proof of work, mining, miner, difficulty, block reward, nonce, genesis]
+gpu_terms: [cuda, opencl, gpu, kernel, nvidia, amd, rocm, wgpu]
+launch_terms: [mainnet, testnet, genesis, seed node, bootstrap, release candidate, mining starts, block height]
+risk_terms: [pre-mine, premine, developer fee, closed source, remote script, private key, presale]

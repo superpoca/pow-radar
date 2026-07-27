@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: powradar
+      POSTGRES_USER: powradar
+      POSTGRES_PASSWORD: powradar
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+  app:
+    build: .
+    env_file: .env
+    depends_on: [db]
+volumes:
+  pgdata:
