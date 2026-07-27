@@ -48,5 +48,5 @@ risk_terms:
   - remote script
   - private key
   - presale
-  - curl | bash
+  - "curl | bash"
   - invoke-expression

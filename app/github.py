@@ -18,6 +18,7 @@ TEXT_FILE_SUFFIXES = {".c", ".cc", ".conf", ".cpp", ".cu", ".go", ".h", ".hpp", 
 CORE_HINTS = ("miner", "wallet", "node", "daemon", "consensus", "pow", "genesis", "mainnet", "testnet", "seed", "stratum")
 BUILD_FILES = {"cargo.toml", "cmakelists.txt", "dockerfile", "go.mod", "makefile", "package.json", "pyproject.toml"}
 ROADMAP_HINTS = ("roadmap", "milestone", "plan")
+MAX_FILE_SIZE_BYTES = 200_000
 
 
 class GitHub:
@@ -40,8 +41,9 @@ class GitHub:
             try:
                 response = self.client.get(url, params=params)
                 if response.status_code == 403 and response.headers.get("x-ratelimit-remaining") == "0":
-                    reset_at = int(response.headers.get("x-ratelimit-reset", "0") or 0)
-                    sleep_for = max(min(reset_at - int(time.time()), 10), 1)
+                    reset_at = int(response.headers.get("x-ratelimit-reset") or 0)
+                    now_ts = int(time.time())
+                    sleep_for = max(1, min(reset_at - now_ts, 10)) if reset_at > now_ts else 1
                     log.warning("GitHub rate limit hit for %s; sleeping %ss", path, sleep_for)
                     time.sleep(sleep_for)
                     continue
@@ -103,7 +105,8 @@ class GitHub:
         payload = self.request_json(f"/repos/{full_name}/contents/{path}", params={"ref": ref})
         if payload.get("type") != "file":
             return ""
-        if payload.get("size", 0) > 200_000:
+        if payload.get("size", 0) > MAX_FILE_SIZE_BYTES:
+            log.warning("Skipping %s from %s because file size exceeds %s bytes", path, full_name, MAX_FILE_SIZE_BYTES)
             return ""
         if payload.get("encoding") == "base64":
             return base64.b64decode(payload["content"]).decode("utf-8", errors="ignore")

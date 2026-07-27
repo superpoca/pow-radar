@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+
+from sqlalchemy.orm import sessionmaker
 
 import typer
 
@@ -15,15 +16,15 @@ from .telegram import send
 app = typer.Typer(no_args_is_help=True)
 log = logging.getLogger(__name__)
 MANUAL_CHECKLIST = [
-    "核对源码与 release 是否对应",
-    "核对节点、钱包和矿工必要条件是否完整",
-    "核对预挖/开发者奖励是否透明",
-    "核对是否已有独立第三方验证",
-    "不要下载或执行未知二进制",
+    "Verify that source and release artifacts match.",
+    "Verify that node, wallet, miner, and PoW prerequisites are complete.",
+    "Verify that premine and developer allocation are transparent.",
+    "Verify that independent third-party validation exists.",
+    "Do not download or execute unknown binaries or scripts.",
 ]
 
 
-def setup() -> tuple[Settings, callable]:
+def setup() -> tuple[Settings, sessionmaker]:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     settings = Settings.from_env()
     return settings, get_db(settings.database_url)
@@ -214,7 +215,7 @@ def classify_project(project: Project, metadata: dict, analysis: dict) -> tuple[
         reasons.extend(["mainnet parameters look stable", "miner path present"])
         return "P1", "PRE-MINE", reasons
     launch_sources = analysis.get("sources", {}).get("launch", [])
-    if any("testnet" in source.lower() for source in launch_sources) or (analysis.get("launch") and "testnet" in str(launch_sources).lower()):
+    if any("testnet" in source.lower() for source in launch_sources):
         reasons.append("testnet signal detected")
         return "P2", "TESTNET", reasons
     if analysis.get("launch") or analysis.get("pow") or analysis.get("gpu"):
@@ -254,15 +255,25 @@ def send_pending_alerts(session, settings: Settings) -> int:
 def render_alert(project: Project, signal: Signal, score_total: float | None) -> str:
     risks = signal.details.get("risk_flags", {})
     evidence = signal.details.get("evidence", {})
+    signal_lines = [f"- {name}: {'yes' if value else 'no'}" for name, value in signal.details.get("signals", {}).items()]
+    evidence_lines = [
+        f"- {name}: {', '.join(paths) if paths else 'none'}"
+        for name, paths in evidence.items()
+        if paths
+    ]
+    risk_lines = [f"- {name}: {'yes' if value else 'no'}" for name, value in risks.items()]
     return "\n".join(
         [
             f"{signal.severity} PoW Radar",
             f"项目: {project.full_name}",
             f"状态: {project.status}",
             f"评分: {score_total if score_total is not None else 'N/A'}",
-            f"信号: {signal.details.get('signals', {})}",
-            f"证据: {evidence}",
-            f"风险: {risks}",
+            "信号:",
+            *(signal_lines or ["- none"]),
+            "证据:",
+            *(evidence_lines or ["- none"]),
+            "风险:",
+            *(risk_lines or ["- none"]),
             "人工复核建议:",
             *[f"- {item}" for item in signal.details.get("manual_review", MANUAL_CHECKLIST)],
         ]

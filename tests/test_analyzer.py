@@ -43,6 +43,11 @@ def test_malicious_script_rejected():
     assert score.reject_reason == "malicious_script"
 
 
+def test_documentation_example_does_not_trigger_remote_exec():
+    result = analyze_text({"README.md": "Install with curl | bash if you trust it"}, keywords())
+    assert not result["remote_exec"]
+
+
 def test_qualified_score_thresholds():
     score = calculate_score(
         {

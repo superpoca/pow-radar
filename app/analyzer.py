@@ -10,6 +10,7 @@ CODE_SUFFIXES = {".c", ".cc", ".cpp", ".cu", ".go", ".h", ".hpp", ".py", ".rs", 
 DOC_SUFFIXES = {".md", ".rst", ".txt"}
 CONFIG_SUFFIXES = {".conf", ".ini", ".json", ".toml", ".yaml", ".yml"}
 SCRIPT_SUFFIXES = {".bat", ".ps1", ".sh"}
+BUILD_FILES = {"cargo.toml", "cmakelists.txt", "dockerfile", "go.mod", "makefile", "package.json", "pyproject.toml"}
 
 
 @dataclass(slots=True)
@@ -47,6 +48,7 @@ def analyze_text(files: dict[str, str], keywords: dict) -> dict:
         lowered_path = path.lower()
         lowered_content = (content or "").lower()
         blob = f"{lowered_path}\n{lowered_content}"
+        kind = source_kind(path)
         if _contains_any(blob, pow_terms):
             sources["pow"].append(path)
         if _contains_any(blob, gpu_terms):
@@ -65,7 +67,13 @@ def analyze_text(files: dict[str, str], keywords: dict) -> dict:
             sources["parameter"].append(path)
         if re.search(r"\b(pre-?mine|developer fee|allocat(ed|ion)|premint)\b", blob):
             sources["premine"].append(path)
-        if re.search(r"(curl|wget).*(\||&&)\s*(bash|sh)|invoke-expression|iex\s*\(|powershell\s+-enc", blob):
+        # This intentionally targets executable/static code paths only. README or doc examples
+        # may still mention dangerous commands, so human review remains required for more
+        # sophisticated obfuscation such as variable substitution or base64-wrapped payloads.
+        if kind in {"script", "code"} and re.search(
+            r"(curl|wget).*(\||&&)\s*(bash|sh)|invoke-expression|iex\s*\(|powershell\s+-(enc|encodedcommand)",
+            blob,
+        ):
             sources["remote_exec"].append(path)
 
     normalized_sources = {name: _unique(values) for name, values in sources.items()}
@@ -234,7 +242,7 @@ def source_kind(path: str) -> str:
         return "readme"
     if "release" in lower or "changelog" in lower:
         return "release"
-    if name in {"dockerfile", "compose.yml", "compose.yaml", "makefile", "cargo.toml", "go.mod", "package.json", "cmakelists.txt", "pyproject.toml"} or suffix in CONFIG_SUFFIXES:
+    if name in BUILD_FILES or suffix in CONFIG_SUFFIXES:
         return "config"
     if suffix in SCRIPT_SUFFIXES:
         return "script"

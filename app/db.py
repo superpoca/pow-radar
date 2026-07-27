@@ -13,11 +13,15 @@ class Base(DeclarativeBase):
 SCHEMA_VERSION = 1
 
 
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class SchemaVersion(Base):
     __tablename__ = "schema_versions"
 
     version: Mapped[int] = mapped_column(Integer, primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class Project(Base):
@@ -39,8 +43,8 @@ class Project(Base):
     latest_release: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(32), default="DISCOVERED", index=True)
     risk_level: Mapped[str] = mapped_column(String(32), default="UNKNOWN")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
 
@@ -51,7 +55,7 @@ class GitHubSnapshot(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
     data: Mapped[dict] = mapped_column(JSON, default=dict)
-    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class Score(Base):
@@ -67,7 +71,7 @@ class Score(Base):
     hard_rejected: Mapped[bool] = mapped_column(Boolean, default=False)
     reject_reason: Mapped[str | None] = mapped_column(Text)
     explanation: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class Signal(Base):
@@ -81,7 +85,7 @@ class Signal(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0)
     details: Mapped[dict] = mapped_column(JSON, default=dict)
     event_hash: Mapped[str] = mapped_column(String(128), index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class Alert(Base):
@@ -105,7 +109,7 @@ class StatusChange(Base):
     old_status: Mapped[str | None] = mapped_column(String(32))
     new_status: Mapped[str] = mapped_column(String(32), index=True)
     reason: Mapped[list[str]] = mapped_column(JSON, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 def get_db(url: str):
@@ -121,10 +125,6 @@ def _ensure_schema_version(session: Session) -> None:
     if session.get(SchemaVersion, SCHEMA_VERSION) is None:
         session.add(SchemaVersion(version=SCHEMA_VERSION))
         session.commit()
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def update_status(session: Session, project: Project, new_status: str, reason: list[str] | None = None) -> bool:

@@ -37,7 +37,7 @@
 python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[test]'
-cp /home/runner/work/pow-radar/pow-radar/.env.example .env
+cp .env.example .env
 pow-radar init-db
 pow-radar discover
 pow-radar collect
@@ -49,7 +49,7 @@ pow-radar daily-report
 
 ### 主要环境变量
 
-见 `/home/runner/work/pow-radar/pow-radar/.env.example`：
+见 `.env.example`：
 
 - `GITHUB_TOKEN`：推荐配置，提升 GitHub API 限额。
 - `DATABASE_URL`：默认 SQLite，本地建议 `sqlite:///pow-radar.db`。
@@ -87,7 +87,7 @@ pow-radar daily-report
 - 无可验证 PoW
 - 恶意远程执行/安装脚本
 
-完整阈值见 `/home/runner/work/pow-radar/pow-radar/config/score_rules.yaml`。
+完整阈值见 `config/score_rules.yaml`。
 
 ## P0 保守判定
 
@@ -138,7 +138,7 @@ docker compose up --build
 
 ## 定时任务示例
 
-参见 `/home/runner/work/pow-radar/pow-radar/ops/cron.example`。
+参见 `ops/cron.example`。
 
 ## 测试
 

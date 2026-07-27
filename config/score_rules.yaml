@@ -16,6 +16,7 @@ status_windows:
   archive_days: 180
 
 monitoring:
+  # Suggested scheduler frequencies by status; external cron/CI should consume these values.
   discovered: 12h
   watchlist: 6h
   qualified: 2h
