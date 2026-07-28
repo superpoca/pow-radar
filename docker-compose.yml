@@ -5,11 +5,19 @@ services:
       POSTGRES_DB: powradar
       POSTGRES_USER: powradar
       POSTGRES_PASSWORD: powradar
-    ports: ["5432:5432"]
-    volumes: ["pgdata:/var/lib/postgresql/data"]
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
   app:
     build: .
     env_file: .env
-    depends_on: [db]
+    environment:
+      DATABASE_URL: postgresql+psycopg://powradar:powradar@db:5432/powradar
+    depends_on:
+      - db
+    command: ["pow-radar", "run-all"]
+
 volumes:
   pgdata:

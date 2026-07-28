@@ -1,0 +1,9 @@
+# Discover and collect twice a day
+0 */12 * * * cd /srv/pow-radar && /usr/local/bin/pow-radar discover && /usr/local/bin/pow-radar collect
+
+# Score, detect, and alert every 2 hours
+0 */2 * * * cd /srv/pow-radar && /usr/local/bin/pow-radar score && /usr/local/bin/pow-radar detect-signals && /usr/local/bin/pow-radar send-alerts
+
+# Daily and weekly reports
+15 8 * * * cd /srv/pow-radar && /usr/local/bin/pow-radar daily-report
+30 8 * * 1 cd /srv/pow-radar && /usr/local/bin/pow-radar weekly-report

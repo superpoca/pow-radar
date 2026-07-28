@@ -1,46 +1,301 @@
-import logging, typer
-from datetime import datetime, timezone
+from __future__ import annotations
+
+import logging
+
+from sqlalchemy.orm import sessionmaker
+
+import typer
+
+from .analyzer import calculate_score, event_hash, mining_ready
 from .config import Settings
-from .db import get_db, Project, Score, Signal, Alert
-from .github import discover, collect
-from .analyzer import analyze_text, calculate_score, event_hash, mining_ready
+from .db import Alert, Project, Score, Signal, StatusChange, get_db, update_status, utcnow
+from .github import collect as collect_projects
+from .github import discover as discover_projects
 from .telegram import send
 
-app=typer.Typer(no_args_is_help=True); log=logging.getLogger(__name__)
-def setup(): logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"); s=Settings.from_env(); return s,get_db(s.database_url)
-@app.command()
-def discover_cmd(): s,DB=setup(); db=DB(); print(f"discovered {discover(db,s)}")
-@app.command()
-def collect_cmd(): s,DB=setup(); db=DB(); print(f"collected {collect(db,s)}")
-@app.command()
-def score_cmd():
-    s,DB=setup(); db=DB(); rules=s.rules(); n=0
-    for p in db.query(Project).all():
-        d={"is_fork":p.is_fork,"core_similarity":p.metadata_json.get("core_similarity",0),"inactive_days":p.metadata_json.get("inactive_days",0),"contributors":p.metadata_json.get("contributors",0),"commits_30d":p.metadata_json.get("commits_30d",0),"core_files":p.metadata_json.get("core_files",0),"has_pow":p.metadata_json.get("has_pow",False),"has_gpu":p.metadata_json.get("has_gpu",False),"has_miner":p.metadata_json.get("has_miner",False),"buildable_node":p.metadata_json.get("buildable_node",False),"mainnet_window":p.metadata_json.get("mainnet_window",False),"parameters_frozen":p.metadata_json.get("parameters_frozen",False),"fair_launch":p.metadata_json.get("fair_launch",False),"launch_signal":p.metadata_json.get("launch_signal",False)}
-        r=calculate_score(d,rules); db.add(Score(project_id=p.id,team=r.team,development=r.development,gpu=r.gpu,timing=r.timing,total=r.total,hard_rejected=r.hard_rejected,reject_reason=r.reject_reason,explanation=r.explanation)); p.risk_level="HIGH" if r.hard_rejected else ("LOW" if r.total>=75 else "MEDIUM"); p.status="REJECTED" if r.hard_rejected else ("QUALIFIED" if r.total>=rules["thresholds"]["qualified"] and r.team>=rules["thresholds"]["minimum_team"] and r.gpu>=rules["thresholds"]["minimum_gpu"] else "WATCHLIST"); n+=1
-    db.commit(); print(f"scored {n}")
+app = typer.Typer(no_args_is_help=True)
+log = logging.getLogger(__name__)
+MANUAL_CHECKLIST = [
+    "Verify that source and release artifacts match.",
+    "Verify that node, wallet, miner, and PoW prerequisites are complete.",
+    "Verify that premine and developer allocation are transparent.",
+    "Verify that independent third-party validation exists.",
+    "Do not download or execute unknown binaries or scripts.",
+]
+
+
+def setup() -> tuple[Settings, sessionmaker]:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    settings = Settings.from_env()
+    return settings, get_db(settings.database_url)
+
+
+@app.command("init-db")
+def init_db() -> None:
+    settings, _session_factory = setup()
+    print(f"database initialized: {settings.database_url}")
+
+
+@app.command("discover")
+def discover() -> None:
+    settings, session_factory = setup()
+    with session_factory() as session:
+        print(f"discovered {discover_projects(session, settings)}")
+
+
+@app.command("collect")
+def collect() -> None:
+    settings, session_factory = setup()
+    with session_factory() as session:
+        print(f"collected {collect_projects(session, settings)}")
+
+
+@app.command("score")
+def score() -> None:
+    settings, session_factory = setup()
+    with session_factory() as session:
+        print(f"scored {run_score(session, settings.rules())}")
+
+
 @app.command("detect-signals")
-def detect_signals():
-    s,DB=setup(); db=DB(); keys=s.keywords(); n=0
-    for p in db.query(Project).filter(Project.status.not_in(["REJECTED","ARCHIVED"])).all():
-        files={"README.md":p.description or "", p.full_name:" ".join(keys["pow_terms"]+keys["gpu_terms"]+keys["launch_terms"])}; a=analyze_text(files,keys); sev="P2"; ready=mining_ready({"node":a["node"],"pow_parameters":a["parameter"],"miner":a["miner"],"wallet":a["wallet"],"official_release":bool(p.latest_release),"independent_build":False,"independent_mining_test":False,"mainnet_confirmed":False,"genesis_confirmed":False})
-        if ready: sev="P0"; p.status="MINING-READY"
-        elif a["launch"] and a["miner"]: sev="P1"; p.status="PRE-MINE"
-        h=event_hash(p.full_name,sev,a); db.add(Signal(project_id=p.id,signal_type="mining_readiness",severity=sev,confidence=0.5 if sev!="P0" else 0.9,details=a,event_hash=h)); n+=1
-    db.commit(); print(f"signals {n}")
+def detect_signals() -> None:
+    settings, session_factory = setup()
+    with session_factory() as session:
+        print(f"signals {run_detect_signals(session, settings.rules())}")
+
+
 @app.command("send-alerts")
-def send_alerts():
-    s,DB=setup(); db=DB(); n=0
-    for sig in db.query(Signal).filter(Signal.severity.in_(["P0","P1","P2"])).all():
-        if db.query(Alert).filter_by(event_hash=sig.event_hash).first(): continue
-        p=db.get(Project,sig.project_id); msg=f"{sig.severity} PoW Radar\n{p.full_name}\n状态: {p.status}\n评分: {db.query(Score).filter_by(project_id=p.id).order_by(Score.created_at.desc()).first().total if db.query(Score).filter_by(project_id=p.id).first() else 'N/A'}\n信号: {sig.details}\n请人工核对源码、release、节点、钱包和预挖。"; sent=send(s,msg); db.add(Alert(project_id=p.id,severity=sig.severity,event_hash=sig.event_hash,message=msg)); n+=1
-    db.commit(); print(f"alerts {n}")
-@app.command("run-all")
-def run_all(): discover_cmd(); collect_cmd(); score_cmd(); detect_signals(); send_alerts()
+def send_alerts() -> None:
+    settings, session_factory = setup()
+    with session_factory() as session:
+        print(f"alerts {send_pending_alerts(session, settings)}")
+
+
 @app.command("daily-report")
-def daily_report():
-    s,DB=setup(); db=DB(); print("# PoW Radar Daily Report\n");
-    for p in db.query(Project).filter(Project.status.in_(["QUALIFIED","PRE-MINE","MINING-READY"])).all(): print(f"- {p.full_name}: {p.status}, {p.risk_level}")
+def daily_report() -> None:
+    settings, session_factory = setup()
+    with session_factory() as session:
+        print(render_report(session, title="PoW Radar Daily Report"))
+
+
 @app.command("weekly-report")
-def weekly_report(): daily_report()
-def main(): app()
+def weekly_report() -> None:
+    settings, session_factory = setup()
+    with session_factory() as session:
+        print(render_report(session, title="PoW Radar Weekly Report"))
+
+
+@app.command("run-all")
+def run_all() -> None:
+    settings, session_factory = setup()
+    with session_factory() as session:
+        discovered = discover_projects(session, settings)
+        collected = collect_projects(session, settings)
+        scored = run_score(session, settings.rules())
+        signals = run_detect_signals(session, settings.rules())
+        alerts = send_pending_alerts(session, settings)
+    print(f"discovered={discovered} collected={collected} scored={scored} signals={signals} alerts={alerts}")
+
+
+def run_score(session, rules: dict) -> int:
+    count = 0
+    thresholds = rules.get("thresholds", {})
+    archive_days = rules.get("status_windows", {}).get("archive_days", 180)
+    for project in session.query(Project).all():
+        metadata = project.metadata_json or {}
+        result = calculate_score(metadata, rules)
+        session.add(
+            Score(
+                project_id=project.id,
+                team=result.team,
+                development=result.development,
+                gpu=result.gpu,
+                timing=result.timing,
+                total=result.total,
+                hard_rejected=result.hard_rejected,
+                reject_reason=result.reject_reason,
+                explanation=result.explanation,
+            )
+        )
+        if result.hard_rejected:
+            project.risk_level = "HIGH"
+            reason = [result.reject_reason or "hard_reject"]
+            if metadata.get("inactive_days", 0) >= archive_days:
+                update_status(session, project, "ARCHIVED", reason)
+            else:
+                update_status(session, project, "REJECTED", reason)
+        else:
+            project.risk_level = "LOW" if result.total >= thresholds.get("qualified", 75) else "MEDIUM"
+            qualified = (
+                result.total >= thresholds.get("qualified", 75)
+                and result.team >= thresholds.get("minimum_team", 18)
+                and result.gpu >= thresholds.get("minimum_gpu", 16)
+            )
+            update_status(session, project, "QUALIFIED" if qualified else "WATCHLIST", [f"score={result.total:.1f}"])
+        count += 1
+    session.commit()
+    return count
+
+
+def run_detect_signals(session, rules: dict) -> int:
+    count = 0
+    for project in session.query(Project).filter(Project.status.not_in(["REJECTED", "ARCHIVED"])).all():
+        metadata = project.metadata_json or {}
+        analysis = metadata.get("analysis") or {}
+        severity, next_status, reasons = classify_project(project, metadata, analysis)
+        if not severity:
+            continue
+        details = {
+            "signals": {
+                "pow": analysis.get("pow", False),
+                "gpu": analysis.get("gpu", False),
+                "miner": analysis.get("miner", False),
+                "node": analysis.get("node", False),
+                "wallet": analysis.get("wallet", False),
+                "parameter": analysis.get("parameter", False),
+                "launch": analysis.get("launch", False),
+            },
+            "evidence": analysis.get("sources", {}),
+            "risk_flags": {
+                "premine": analysis.get("premine", False),
+                "remote_exec": analysis.get("remote_exec", False),
+            },
+            "reasons": reasons,
+            "manual_review": MANUAL_CHECKLIST,
+        }
+        signature = event_hash(project.full_name, severity, next_status, details)
+        if session.query(Signal).filter_by(event_hash=signature).one_or_none() is None:
+            session.add(
+                Signal(
+                    project_id=project.id,
+                    signal_type="mining_readiness",
+                    severity=severity,
+                    confidence=0.90 if severity == "P0" else (0.70 if severity == "P1" else 0.50),
+                    details=details,
+                    event_hash=signature,
+                )
+            )
+            count += 1
+        update_status(session, project, next_status, reasons)
+    session.commit()
+    return count
+
+
+def classify_project(project: Project, metadata: dict, analysis: dict) -> tuple[str | None, str, list[str]]:
+    if not analysis:
+        return None, project.status, []
+
+    ready = mining_ready(
+        {
+            "node": analysis.get("node", False),
+            "pow_parameters": analysis.get("parameter", False),
+            "miner": analysis.get("miner", False),
+            "wallet": analysis.get("wallet", False),
+            "required_sources": {
+                "node": analysis.get("sources", {}).get("node", []),
+                "pow_parameters": analysis.get("sources", {}).get("parameter", []),
+                "miner": analysis.get("sources", {}).get("miner", []),
+                "wallet": analysis.get("sources", {}).get("wallet", []),
+            },
+            "official_release": bool(project.latest_release),
+            "independent_build": metadata.get("buildable_node", False),
+            "independent_mining_test": metadata.get("has_miner", False) and metadata.get("has_gpu", False),
+            "mainnet_confirmed": metadata.get("mainnet_window", False),
+            "genesis_confirmed": metadata.get("parameters_frozen", False),
+        }
+    )
+    reasons: list[str] = []
+    if ready:
+        reasons.extend(["static PoW/GPU signals verified", "node/miner/wallet/parameters present", "multiple independent evidence flags present"])
+        return "P0", "MINING-READY", reasons
+    if metadata.get("mainnet_window") and analysis.get("miner") and analysis.get("node"):
+        reasons.extend(["launch window detected", "miner and node signals present"])
+        return "P1", "PRE-MINE", reasons
+    if metadata.get("mainnet_window") and metadata.get("parameters_frozen") and metadata.get("has_miner"):
+        reasons.extend(["mainnet parameters look stable", "miner path present"])
+        return "P1", "PRE-MINE", reasons
+    launch_sources = analysis.get("sources", {}).get("launch", [])
+    if any("testnet" in source.lower() for source in launch_sources):
+        reasons.append("testnet signal detected")
+        return "P2", "TESTNET", reasons
+    if analysis.get("launch") or analysis.get("pow") or analysis.get("gpu"):
+        reasons.append("candidate mining signals detected")
+        return "P2", project.status if project.status != "DISCOVERED" else "WATCHLIST", reasons
+    return None, project.status, []
+
+
+def send_pending_alerts(session, settings: Settings) -> int:
+    """Deliver pending alerts and only deduplicate successfully delivered ones."""
+    count = 0
+    for signal in session.query(Signal).filter(Signal.severity.in_(["P0", "P1", "P2"])).all():
+        if session.query(Alert).filter_by(event_hash=signal.event_hash).one_or_none() is not None:
+            continue
+        project = session.get(Project, signal.project_id)
+        if project is None:
+            continue
+        latest_score = (
+            session.query(Score).filter_by(project_id=project.id).order_by(Score.created_at.desc()).first()
+        )
+        message = render_alert(project, signal, latest_score.total if latest_score else None)
+        if not send(settings, message):
+            log.warning("Alert delivery failed for %s; leaving it pending for retry", project.full_name)
+            continue
+        session.add(
+            Alert(
+                project_id=project.id,
+                severity=signal.severity,
+                event_hash=signal.event_hash,
+                message=message,
+                sent_at=utcnow(),
+                delivery_status="SENT",
+            )
+        )
+        count += 1
+    session.commit()
+    return count
+
+
+def render_alert(project: Project, signal: Signal, score_total: float | None) -> str:
+    risks = signal.details.get("risk_flags", {})
+    evidence = signal.details.get("evidence", {})
+    signal_lines = [f"- {name}: {'yes' if value else 'no'}" for name, value in signal.details.get("signals", {}).items()]
+    evidence_lines = [
+        f"- {name}: {', '.join(paths) if paths else 'none'}"
+        for name, paths in evidence.items()
+        if paths
+    ]
+    risk_lines = [f"- {name}: {'yes' if value else 'no'}" for name, value in risks.items()]
+    return "\n".join(
+        [
+            f"{signal.severity} PoW Radar",
+            f"项目: {project.full_name}",
+            f"状态: {project.status}",
+            f"评分: {score_total if score_total is not None else 'N/A'}",
+            "信号:",
+            *(signal_lines or ["- none"]),
+            "证据:",
+            *(evidence_lines or ["- none"]),
+            "风险:",
+            *(risk_lines or ["- none"]),
+            "人工复核建议:",
+            *[f"- {item}" for item in signal.details.get("manual_review", MANUAL_CHECKLIST)],
+        ]
+    )
+
+
+def render_report(session, *, title: str) -> str:
+    lines = [f"# {title}", ""]
+    for project in session.query(Project).filter(Project.status.in_(["QUALIFIED", "TESTNET", "PRE-MINE", "MINING-READY", "ACTIVE-MINING"])).order_by(Project.stars.desc()).all():
+        latest_score = session.query(Score).filter_by(project_id=project.id).order_by(Score.created_at.desc()).first()
+        score_text = f"{latest_score.total:.1f}" if latest_score else "N/A"
+        lines.append(f"- {project.full_name}: status={project.status}, risk={project.risk_level}, score={score_text}")
+    recent_changes = session.query(StatusChange).order_by(StatusChange.created_at.desc()).limit(10).all()
+    if recent_changes:
+        lines.extend(["", "## Recent status changes"])
+        for change in recent_changes:
+            lines.append(f"- project_id={change.project_id}: {change.old_status} -> {change.new_status} ({', '.join(change.reason or [])})")
+    return "\n".join(lines)
+
+
+def main() -> None:
+    app()
