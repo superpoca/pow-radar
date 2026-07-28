@@ -1,17 +1,17 @@
 from app.cli import run_detect_signals, run_score, send_pending_alerts
-from app.db import Project, Signal, StatusChange, get_db
+from app.db import Alert, Project, Signal, StatusChange, get_db
 
 
-def test_send_alerts_deduplicates_by_event_hash(tmp_path, monkeypatch):
+def test_send_alerts_deduplicates_only_after_success(tmp_path, monkeypatch):
     db_url = f"sqlite:///{tmp_path / 'pow-radar.db'}"
     session_factory = get_db(db_url)
     sent_messages = []
 
     class SettingsStub:
-        telegram_token = None
-        telegram_chat_id = None
+        telegram_token = "token"
+        telegram_chat_id = "chat"
 
-    monkeypatch.setattr("app.cli.send", lambda settings, message: sent_messages.append(message) or False)
+    monkeypatch.setattr("app.cli.send", lambda settings, message: sent_messages.append(message) or True)
 
     with session_factory() as session:
         project = Project(full_name="owner/repo", status="PRE-MINE", metadata_json={})
@@ -31,6 +31,37 @@ def test_send_alerts_deduplicates_by_event_hash(tmp_path, monkeypatch):
         assert send_pending_alerts(session, SettingsStub()) == 1
         assert send_pending_alerts(session, SettingsStub()) == 0
         assert len(sent_messages) == 1
+        assert session.query(Alert).count() == 1
+
+
+def test_failed_alert_remains_pending_for_retry(tmp_path, monkeypatch):
+    db_url = f"sqlite:///{tmp_path / 'pow-radar.db'}"
+    session_factory = get_db(db_url)
+
+    class SettingsStub:
+        telegram_token = "token"
+        telegram_chat_id = "chat"
+
+    monkeypatch.setattr("app.cli.send", lambda settings, message: False)
+
+    with session_factory() as session:
+        project = Project(full_name="owner/repo", status="PRE-MINE", metadata_json={})
+        session.add(project)
+        session.commit()
+        session.add(
+            Signal(
+                project_id=project.id,
+                signal_type="mining_readiness",
+                severity="P1",
+                confidence=0.7,
+                details={"signals": {}, "evidence": {}, "risk_flags": {}, "manual_review": []},
+                event_hash="retry-hash",
+            )
+        )
+        session.commit()
+        assert send_pending_alerts(session, SettingsStub()) == 0
+        assert send_pending_alerts(session, SettingsStub()) == 0
+        assert session.query(Alert).count() == 0
 
 
 def test_status_change_recorded_and_signal_created(tmp_path):

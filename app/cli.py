@@ -225,6 +225,7 @@ def classify_project(project: Project, metadata: dict, analysis: dict) -> tuple[
 
 
 def send_pending_alerts(session, settings: Settings) -> int:
+    """Deliver pending alerts and only deduplicate successfully delivered ones."""
     count = 0
     for signal in session.query(Signal).filter(Signal.severity.in_(["P0", "P1", "P2"])).all():
         if session.query(Alert).filter_by(event_hash=signal.event_hash).one_or_none() is not None:
@@ -236,15 +237,17 @@ def send_pending_alerts(session, settings: Settings) -> int:
             session.query(Score).filter_by(project_id=project.id).order_by(Score.created_at.desc()).first()
         )
         message = render_alert(project, signal, latest_score.total if latest_score else None)
-        sent = send(settings, message)
+        if not send(settings, message):
+            log.warning("Alert delivery failed for %s; leaving it pending for retry", project.full_name)
+            continue
         session.add(
             Alert(
                 project_id=project.id,
                 severity=signal.severity,
                 event_hash=signal.event_hash,
                 message=message,
-                sent_at=utcnow() if sent else None,
-                delivery_status="SENT" if sent else "SKIPPED",
+                sent_at=utcnow(),
+                delivery_status="SENT",
             )
         )
         count += 1
